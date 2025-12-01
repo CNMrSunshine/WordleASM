@@ -58,6 +58,7 @@ OpenWordlist:
     push rax
 rand:
     rdtsc ; 用CPU时钟做伪随机
+    imul rax, rax ; 扩大随机性
     xor rdx, rdx
     mov rbx, 7700 ; 取模词库总数
     div rbx
