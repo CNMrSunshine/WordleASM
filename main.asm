@@ -61,7 +61,7 @@ rand:
     xor rdx, rdx
     mov rbx, 7700 ; 取模词库总数
     div rbx
-    mov rdx, 1 ; 调试用 固定取词库第一个单词
+    ;mov rdx, 1 ; 调试用 固定取词库第一个单词
 ReadWordlist:
     push rdx ; 此时[rsp]是计数器 [rsp+8]是文件流
     mov rdi, SelectedWord
@@ -124,8 +124,11 @@ CheckInput:
 
 DeleteLetter:
     mov al, 0x20
+    test rcx, rcx
+    jz DelCurrentDigit ; 若为第一位 则只清除当前输入
     mov byte [input+rcx], al ; 清除当前输入
     dec rcx
+DelCurrentDigit:
     mov byte [input+rcx], al ; 清除前一输入
     jmp ReadInput ; 重新监听输入
 
