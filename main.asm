@@ -245,10 +245,11 @@ PrintLetters: ; 打印用户输入字母
 CustomStrlen: ; 以[sil]为终止符计算[rdi]字符串长度
     xor rax, rax ; 重置循环计数器
 strlenLoop:
-    inc rax ; 每检查1字节 rax++
     mov byte bl, [rdi+rax] ; bl = buffer[rax]
+    inc rax ; 每检查1字节 rax++
     cmp bl, sil
     jne strlenLoop
+    dec rax ; 去掉最后检查的字节
     ret
     
 
