@@ -9,22 +9,26 @@ section .data
     MSG2 db 0x0a, 0x1b, "[36mThe selected word contains ", 0x1b, "[32m%d letters",0x0a, 0x1b, "[36mInput your first attempt then press ENTER to summit!", 0x0a, 0x00
     MSG4 db 0x0a, 0x1b, "[37m [%d] -", 0x00
     MSG5 db 0x1b, "[35m Wrong length!",0x0a, 0x00
-    WinMSG db 0x0a, 0x0a, 0x1b, "[36mCongrats! You WON after %d attempts!", 0x0a, 0x00 
+    WinMSG db 0x0a, 0x0a, 0x1b, "[36mCongrats! You WON after %d attempts!", 0x0a, 0x00
+    KeyBoardLayout db "qwertyuiop", 0x01, "asdfghjkl", 0x02, "zxcvbnm"
     ; =======================================
     ; 短文字信息
     ShowAttempt db 0x1b, "[37m[%d] -", 0x00
-    FlushANSI db 0x1b, "[1A", 0x1b, "[2K" ; 控制台移动光标到上一行行首 并清空行
-    LenFlush equ $-FlushANSI
+    FlushPreANSI db 0x1b, "[1A", 0x1b, "[2K" ; 控制台移动光标到上一行行首 并清空行
+    LenFlushPreANSI equ $-FlushPreANSI
     FlushCurANSI db 0x1b, "[2K", 0x1b, "[1G" ; 控制台清除当前行并移动光标到行首
     LenFlushCurANSI equ $-FlushCurANSI
-    LetterRed db 0x1b, "[31m [%c]", 0x00
-    LetterYellow db 0x1b, "[33m [%c]", 0x00
-    LetterGreen db 0x1b, "[32m [%c]", 0x00
+    LetterRed db " ", 0x1b, "[31m[%c]", 0x00
+    LetterYellow db " ", 0x1b, "[33m[%c]", 0x00
+    LetterGreen db " ", 0x1b, "[32m[%c]", 0x00
+    LetterGrey db " ", 0x1b, "[90m[%c]", 0x00
     Return db 0x0a, 0x00 ; \n
     Header db 0x1b, "[37mWODL> "
     lenHeader equ $-Header
     LeftSym db "["
     RightSym db "] "
+    KBReturn1 db 0x0a, "  ", 0x00
+    KBReturn2 db 0x0a, "    ", 0x00
     ; =======================================
     ; 硬编码参数
     wdlistPath db "wordlist", 0x00
@@ -43,6 +47,7 @@ section .bss
     WordLen resb 0x8 ; 存放答案长度
     Attempts resb 0x8 ; 存放用户尝试次数
     TermiosData resb 64 ; 终端ioctl数据
+    KnownLetters resb 26 ; 记录已确认的字母
     ; =======================================
 
 section .text
@@ -86,6 +91,8 @@ GetLen:
     call printf
 GuessStart:
     mov rdi, Return
+    call printf
+    mov rdi, Return
     call printf ; 换行顺便fflush
     xor rcx, rcx ; 计数器
 ClearBuffer:
@@ -95,9 +102,12 @@ ClearBuffer:
     jne ClearBuffer
     xor rcx, rcx ; 用户输入字符数计数器
 ReadInput:
-    push rcx
+    push rcx ; 保存计数器
     sub rsp, 8
-    call PrintInput
+    call PrintKeyBoard ; 打印键盘
+    mov rdi, Return
+    call printf
+    call PrintInput ; 打印输入框
     add rsp, 8
     pop rcx
     mov rax, 0 ; read
@@ -131,23 +141,26 @@ DeleteLetter:
     dec rcx
 DelCurrentDigit:
     mov byte [input+rcx], al ; 清除前一输入
-    jmp ReadInput ; 重新监听输入
+    jmp ContinueRead ; 继续监听输入
 
 ClearInput:
     mov al, 0x20
     mov byte [input+rcx], al ; 回退缓冲区
     dec rcx ; 回退计数器
-    jmp ReadInput ; 重新监听输入
+    jmp ContinueRead ; 继续监听输入
 
 ProcessLetters:
-    call PrintInput ; 打印输入框
     add rsp, 8
     pop rcx ; 恢复输入计数器
     inc rcx
     cmp rcx, [WordLen]
-    jne ReadInput
-    call FlushCurrent
+    jne ContinueRead
 PrintAttempt:
+    call FlushCurrentLine ; 清除键盘和输入框
+    call FlushPreLine
+    call FlushPreLine
+    call FlushPreLine
+    call FlushPreLine
     inc [Attempts]
     mov rdi, ShowAttempt
     mov rsi, [Attempts]
@@ -191,11 +204,19 @@ print:
     syscall
     ret
 
-FlushCurrent: ; 清空当前终端行
+FlushCurrentLine: ; 清空当前终端行
     mov rax, 1 ; write
     mov rdi, 1 ; stdout
     mov rsi, FlushCurANSI
     mov rdx, LenFlushCurANSI
+    syscall
+    ret
+
+FlushPreLine: ; 清空终端上一行
+    mov rax, 1 ; write
+    mov rdi, 1 ; stdout
+    mov rsi, FlushPreANSI
+    mov rdx, LenFlushPreANSI
     syscall
     ret
 
@@ -218,7 +239,6 @@ RawMode: ; 将终端设置为raw输入模式
     ret
 
 PrintInput: ; 打印输入框
-    call FlushCurrent ; 清除本行
     mov rsi, Header
     mov rdx, lenHeader
     call print ; 打印"WODL> "
@@ -242,6 +262,74 @@ PrintLetters: ; 打印用户输入字母
     jne PrintLetters
     ret
 
+ContinueRead:
+    push rcx ; 保存计数器
+    sub rsp, 8
+    call FlushCurrentLine
+    call FlushPreLine
+    call FlushPreLine
+    call FlushPreLine
+    add rsp, 8
+    pop rcx
+    jmp ReadInput
+
+; ====
+
+PrintKeyBoard:
+    xor rcx, rcx ; 计数器
+PrintKeyBoardLoop:
+    xor rsi, rsi
+    mov byte sil, [KeyBoardLayout+rcx]
+    cmp sil, 0x01
+    je PrintKBReturn1
+    cmp sil, 0x02
+    je PrintKBReturn2
+    sub sil, 0x61 ; ASCII -> Hex位次
+    mov byte bl, [KnownLetters+rsi]
+    add sil, 0x61 ; 恢复ASCII
+    push rcx ; 保存计数器 顺便对齐栈
+    cmp bl, 0x1
+    je PrintKBGreen
+    cmp bl, 0x2
+    je PrintKBYellow
+    cmp bl, 0x3
+    je PrintKBRed
+
+PrintKBGrey:
+    mov rdi, LetterGrey
+    call printf
+    jmp PrintKBEnd
+PrintKBGreen:
+    mov rdi, LetterGreen
+    call printf
+    jmp PrintKBEnd
+PrintKBYellow:
+    mov rdi, LetterYellow
+    call printf
+    jmp PrintKBEnd
+PrintKBRed:
+    mov rdi, LetterRed
+    call printf
+    jmp PrintKBEnd
+PrintKBReturn1:
+    push rcx ; 保存计数器
+    mov rdi, KBReturn1
+    call printf
+    jmp PrintKBEnd
+PrintKBReturn2:
+    push rcx ; 保存计数器
+    mov rdi, KBReturn2
+    call printf
+
+PrintKBEnd:
+    pop rcx ; 恢复计数器
+    inc rcx
+    cmp rcx, 28 ; 26个字母+两个换行
+    jne PrintKeyBoardLoop
+    ret
+
+; ====
+
 CustomStrlen: ; 以[sil]为终止符计算[rdi]字符串长度
     xor rax, rax ; 重置循环计数器
 strlenLoop:
@@ -251,7 +339,7 @@ strlenLoop:
     jne strlenLoop
     dec rax ; 去掉最后检查的字节
     ret
-    
+
 
 ; ===========================================
 ; 处理用户输入时的输出
@@ -262,9 +350,27 @@ WrongLength:
     call printf
     jmp GuessStart
 
+LetterCorrect:
+    push rcx ; 保存循环计数器和正确字母计数器
+    push rsi
+    sub rax, 0x61 ; ASCII -> Hex位次
+    mov [KnownLetters+rax], 0x1 ; 0x1 = 字母正确
+    add rax, 0x61 ; 恢复ASCII
+    mov rdi, LetterGreen
+    mov rsi, rax
+    call printf
+    pop rsi ; 恢复计数器
+    pop rcx
+    inc rcx
+    inc rsi
+    jmp CheckLetters
+
 LetterContain:
     push rcx ; 保存循环计数器和正确字母计数器
     push rsi
+    sub rax, 0x61 ; ASCII -> Hex位次
+    mov [KnownLetters+rax], 0x2 ; 0x2 = 字母存在
+    add rax, 0x61 ; 恢复ASCII
     mov rdi, LetterYellow
     mov rsi, rax
     call printf
@@ -276,24 +382,15 @@ LetterContain:
 LetterNotContain:
     push rcx ; 保存循环计数器和正确字母计数器
     push rsi
+    sub rax, 0x61 ; ASCII -> Hex位次
+    mov [KnownLetters+rax], 0x3 ; 0x3 = 字母不存在
+    add rax, 0x61 ; 恢复ASCII
     mov rdi, LetterRed
     mov rsi, rax
     call printf
     pop rsi ; 恢复计数器
     pop rcx
     inc rcx
-    jmp CheckLetters
-
-LetterCorrect:
-    push rcx ; 保存循环计数器和正确字母计数器
-    push rsi
-    mov rdi, LetterGreen
-    mov rsi, rax
-    call printf
-    pop rsi ; 恢复计数器
-    pop rcx
-    inc rcx
-    inc rsi
     jmp CheckLetters
 
 ; ===========================================
